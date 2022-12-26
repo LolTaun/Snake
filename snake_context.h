@@ -3,14 +3,16 @@
 #include <cstdlib>
 #include <cstdint>
 #include <vector>
+#include <map>
+#include <ctime>
+#include "SDL2/SDL.h"
 
 const static uint32_t SNAKE_GAME_WIDTH = 36;
 const static uint32_t SNAKE_GAME_HEIGHT = 36;
-const static uint32_t SNAKE_STEP_RATE = 125;
-const static uint32_t SNAKE_BLOCK_SIZE_IN_PIXELS = 20;
 const static uint32_t SNAKE_MATRIX_SIZE = (SNAKE_GAME_WIDTH * SNAKE_GAME_HEIGHT);
-const static uint32_t SNAKE_START_SIZE = 3;
-const static uint32_t FOOD_MAX_NUMBER = 2;
+const static uint32_t SNAKE_START_SIZE = 7;
+const static uint32_t FOOD_MAX_NUMBER = 3;
+const static uint32_t SNAKE_MIN_LENGTH = 3;
 
 enum Direction{
     SNAKE_DIR_RIGHT,
@@ -22,20 +24,11 @@ enum Direction{
 struct Food;
 class Snake;
 
-static bool IsFoodInsideSnake(Snake *snake, Food* food);
+static bool IsFoodInsideSnake(Snake *snake, Snake *snake2, Food* food);
 
 struct Food {
     std::vector<std::pair<int, int>> pos;
-    static void NewFoodPos(Snake *ctx, Food *food){
-        if(food->pos.size() > FOOD_MAX_NUMBER) return;
-        srand(time(nullptr));
-        int x = rand() % SNAKE_GAME_WIDTH, y = rand() % SNAKE_GAME_HEIGHT;
-        food->pos.emplace_back(x, y);
-        if(!IsFoodInsideSnake(ctx, food)){
-            return;
-        }
-
-    }
+    static void NewFoodPos(Snake *ctx, Snake *ctx2, Food *food);
 };
 
 class Snake{
@@ -47,111 +40,56 @@ public:
         std::vector<std::pair<int, int>> pos;
         std::pair<int, int> prev_cell{0, 0};
     } body;
+    struct scores{
+        int score = 0;
+        int kill_count = 0;
+        int max_size = SNAKE_START_SIZE;
+        int food_eaten = 0;
+        void UpdateScore();
+    } score;
 
-    static void Init(Snake *ctx, bool snake_id){
-        ctx->body.pos.reserve(SNAKE_MATRIX_SIZE);
-        ctx->body.dir = ctx->body.prev_dir = Direction::SNAKE_DIR_UP;
-        ctx->body.length = SNAKE_START_SIZE;
-        srand(time(nullptr));
-        int spawn_place = rand() % SNAKE_GAME_WIDTH / 2;
-        if(snake_id) spawn_place += SNAKE_GAME_WIDTH / 4;
-        ctx->body.pos.resize(ctx->body.length);
-        for(int i = 0; i < ctx->body.length - 1; ++i){
-            ctx->body.pos[i] = std::make_pair(spawn_place, i + 8);
-        }
-    }
 
-    static void Move(Snake *ctx, Food *food){
-        ctx->body.prev_cell = ctx->body.pos[ctx->body.length - 1];
-        for(int i = ctx->body.length - 1; i > 0; --i){
-            ctx->body.pos[i].first = ctx->body.pos[i - 1].first;
-            ctx->body.pos[i].second = ctx->body.pos[i - 1].second;
-        }
+    static void Init(Snake *ctx, bool snake_id);
 
-        switch (ctx->body.dir) {
-            case SNAKE_DIR_RIGHT:
-                ctx->body.pos[0].first++;
-                break;
-            case SNAKE_DIR_UP:
-                ctx->body.pos[0].second--;
-                break;
-            case SNAKE_DIR_LEFT:
-                ctx->body.pos[0].first--;
-                break;
-            case SNAKE_DIR_DOWN:
-                ctx->body.pos[0].second++;
-                break;
-        }
+    static void ReInit(Snake *ctx, bool snake_id);
 
-        ctx->body.prev_dir = ctx->body.dir;
+    static void GrowUp(Snake *ctx);
 
-///     window border
-        if(ctx->body.pos[0].first == SNAKE_GAME_WIDTH){
-            ctx->body.pos[0].first = 0;
-        } else if(ctx->body.pos[0].first == -1){
-            ctx->body.pos[0].first = SNAKE_GAME_WIDTH - 1;
-        } else if (ctx->body.pos[0].second == SNAKE_GAME_HEIGHT){
-            ctx->body.pos[0].second = 0;
-        } else if (ctx->body.pos[0].second == -1){
-            ctx->body.pos[0].second = SNAKE_GAME_HEIGHT - 1;
-        }
+    static void Move(Snake *ctx, Snake *ctx2, Food *food);
 
-///     food
-        for(int i = 0; i < food->pos.size(); i++) {
-            if (food->pos[i].first == ctx->body.pos[0].first && food->pos[i].second == ctx->body.pos[0].second) {
-                Food::NewFoodPos(ctx, food);
-                ++ctx->body.length;
-                food->pos.erase(food->pos.begin() + i);
-            }
-        }
-    }
-
-    static void Redirection(Snake *ctx, Direction dir){
-        if(dir == SNAKE_DIR_RIGHT && ctx->body.prev_dir != SNAKE_DIR_LEFT){
-            ctx->body.dir = SNAKE_DIR_RIGHT;
-        }else if (dir == SNAKE_DIR_DOWN && ctx->body.prev_dir != SNAKE_DIR_UP){
-            ctx->body.dir = SNAKE_DIR_DOWN;
-        } else if (dir == SNAKE_DIR_LEFT && ctx->body.prev_dir != SNAKE_DIR_RIGHT){
-            ctx->body.dir = SNAKE_DIR_LEFT;
-        }else if (dir == SNAKE_DIR_UP && ctx->body.prev_dir != SNAKE_DIR_DOWN){
-            ctx->body.dir = SNAKE_DIR_UP;
-        }
-    }
+    static void Redirection(Snake *ctx, Direction dir);
 };
 
-static bool IsFoodInsideSnake(Snake *snake, Food* food){
-    for(int i = 0; i < snake->body.length; ++i){
-        for(int j = 0; j < food->pos.size(); j++) {
-            if (food->pos[j].first == snake->body.pos[i].first && food->pos[j].second == snake->body.pos[i].second) {
-                return true;
-            }
-        }
-    } return false;
+static bool HandleHeadCollision(Snake *ctx1, Snake *ctx2){
+    if( (ctx1->body.pos[0] == ctx2->body.pos[0]) || (ctx1->body.pos[0] == ctx2->body.pos[1] && ctx2->body.pos[0] == ctx1->body.pos[1]) ){
+        --ctx1->score.kill_count;
+        --ctx2->score.kill_count;
+        return false;
+    }
+    return true;
 }
 
-static bool IsKilled(Snake *ctx, Snake *ctx2, Food* food, SDL_Renderer *renderer) {
+
+static bool IsKilled(Snake *ctx, Snake *ctx2, Food* food, SDL_Renderer *renderer){
     for (int i = 1; i < ctx->body.length; ++i) {
-        if (ctx->body.pos[0].first == ctx->body.pos[i].first && ctx->body.pos[0].second == ctx->body.pos[i].second) {
-//            food->pos.emplace_back(ctx->body.pos[1].first, ctx->body.pos[1].second);
+        if (ctx->body.pos[0] == ctx->body.pos[i]) {
+            --ctx->score.kill_count;
             return true;
         }
     }
 
     for(int i = 0; i < ctx2->body.length; i++){
-        if (ctx->body.pos[0].first == ctx2->body.pos[i].first && ctx->body.pos[0].second == ctx2->body.pos[i].second) {
-            ++ctx->body.length;
+        if (ctx->body.pos[0] == ctx2->body.pos[i]) {
+            Snake::GrowUp(ctx);
 
             for(int j = i + 1; j < ctx2->body.length; j++){
-                food->pos.emplace_back(ctx2->body.pos[j].first, ctx2->body.pos[j].second);
-            }ctx2->body.length = i;
-            if(i < 2) {
-                SDL_Rect tail;
-                tail.x = ctx2->body.pos[0].first * 20;
-                tail.y = ctx2->body.pos[0].second * 20;
-                tail.w = 18;
-                tail.h = 18;
-                SDL_RenderFillRect(renderer, &tail);
-                ctx2->Init(ctx2, false);
+                food->pos.push_back(ctx2->body.pos[j]);
+            }
+            ctx2->body.length = i;
+            ctx2->body.pos.resize(i);
+            if(i < SNAKE_MIN_LENGTH) {
+                ++ctx->score.kill_count;
+                ctx2->ReInit(ctx2, false);
             }
 //            food->pos.emplace_back(ctx->body.pos[1].first, ctx->body.pos[1].second);
 //            returna true;
@@ -159,3 +97,5 @@ static bool IsKilled(Snake *ctx, Snake *ctx2, Food* food, SDL_Renderer *renderer
     }
     return false;
 }
+
+//bool HandleHeadCollision(Snake *ctx1, Snake *ctx2);
